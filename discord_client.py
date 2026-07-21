@@ -11,6 +11,10 @@ import urllib.request
 log = logging.getLogger("relay.discord")
 _SSL = ssl.create_default_context()
 
+# Discord API는 명시적 User-Agent를 요구한다. urllib 기본값(Python-urllib/x)은
+# 403으로 차단되므로 반드시 지정한다.
+USER_AGENT = "sentry-discord-relay (https://mongsil.dev, 1.0)"
+
 
 def send_embed(webhook_url: str, embed: dict, timeout: int = 15) -> bool:
     """embed 하나를 Discord 채널로 전송. 성공하면 True.
@@ -23,7 +27,8 @@ def send_embed(webhook_url: str, embed: dict, timeout: int = 15) -> bool:
         try:
             req = urllib.request.Request(
                 webhook_url, data=body,
-                headers={"Content-Type": "application/json"}, method="POST")
+                headers={"Content-Type": "application/json", "User-Agent": USER_AGENT},
+                method="POST")
             with urllib.request.urlopen(req, context=_SSL, timeout=timeout) as resp:
                 if resp.status in (200, 204):
                     return True

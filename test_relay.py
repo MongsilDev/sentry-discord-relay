@@ -5,6 +5,7 @@ import json
 import sys
 
 from discord_embed import build_embed, LEVEL_TO_COLOR
+from discord_client import USER_AGENT
 from app import verify_signature
 
 
@@ -120,6 +121,13 @@ def test_signature_empty_secret_rejected():
     assert verify_signature("", body, sig) is False
 
 
+# ── Discord 전송 규약 ───────────────────────────────────────────────────
+
+def test_user_agent_is_set():
+    """Discord API는 명시 User-Agent를 요구한다. urllib 기본값이면 403."""
+    assert USER_AGENT and "urllib" not in USER_AGENT.lower(), USER_AGENT
+
+
 if __name__ == "__main__":
     ok = True
     for name, fn in [
@@ -134,6 +142,7 @@ if __name__ == "__main__":
         ("틀린 서명 거부", test_signature_wrong_rejected),
         ("서명 없음 거부", test_signature_missing_rejected),
         ("시크릿 미설정 거부", test_signature_empty_secret_rejected),
+        ("User-Agent 설정됨", test_user_agent_is_set),
     ]:
         ok = run(name, fn) and ok
     sys.exit(0 if ok else 1)
