@@ -32,37 +32,54 @@ def _tags_dict(event: dict) -> dict:
     return out
 
 
-def build_embed(payload: dict) -> dict:
-    """Sentry webhook 본문(event_alert/issue 리소스) → Discord embed dict.
+def _project_name(project) -> str:
+    """project는 문자열(event 리소스)일 수도 dict(issue 리소스)일 수도 있다."""
+    if isinstance(project, dict):
+        return project.get("slug") or project.get("name") or "sentry"
+    return str(project) if project else "sentry"
 
-    payload 구조: {"action":..., "data": {"event": {...}, "triggered_rule": ...}}
-    이슈 구독 리소스는 {"data": {"issue": {...}}} 형태라 event가 없을 수 있어 둘 다 본다.
+
+def build_embed(payload: dict) -> dict:
+    """Sentry webhook 본문 → Discord embed dict.
+
+    두 payload 형식을 모두 지원한다:
+    - issue 구독:  {"data": {"issue": {...}}}         (project가 dict, tags 없음)
+    - event_alert: {"data": {"event": {...}, "triggered_rule": ...}}  (tags 배열)
     """
     data = payload.get("data") or {}
-    event = data.get("event") or data.get("issue") or {}
-    metadata = event.get("metadata") or {}
+    obj = data.get("event") or data.get("issue") or {}
+    metadata = obj.get("metadata") or {}
 
-    # 제목: event.title 우선, 없으면 metadata.type + value
-    title = event.get("title") or metadata.get("type") or "알 수 없는 이슈"
-    if not event.get("title") and metadata.get("value"):
+    # 제목: title 우선, 없으면 metadata.type + value
+    title = obj.get("title") or metadata.get("type") or "알 수 없는 이슈"
+    if not obj.get("title") and metadata.get("value"):
         title = f"{title}: {metadata['value']}"
 
-    level = (event.get("level") or "error").lower()
+    level = (obj.get("level") or "error").lower()
     color = LEVEL_TO_COLOR.get(level, DEFAULT_COLOR)
 
-    url = event.get("web_url") or event.get("url") or event.get("issue_url")
-    culprit = event.get("culprit") or metadata.get("filename")
+    url = obj.get("web_url") or obj.get("url") or obj.get("permalink") or obj.get("issue_url")
+    culprit = obj.get("culprit") or metadata.get("filename")
 
-    tags = _tags_dict(event)
-    project = event.get("project") or tags.get("project") or data.get("project_slug") or "sentry"
+    project = _project_name(obj.get("project") or data.get("project_slug"))
     rule = data.get("triggered_rule") or data.get("rule")
 
+    # 필드: event 리소스면 태그에서, issue 리소스면 이슈 속성에서.
     fields = []
-    for key in TAG_FIELDS:
-        if tags.get(key):
-            fields.append({"name": key, "value": str(tags[key]), "inline": True})
+    tags = _tags_dict(obj)
+    if tags:
+        for key in TAG_FIELDS:
+            if tags.get(key):
+                fields.append({"name": key, "value": str(tags[key]), "inline": True})
+    else:
+        # issue 리소스는 태그가 없다. 대신 유용한 속성으로 채운다.
+        fields.append({"name": "level", "value": level, "inline": True})
+        if obj.get("shortId"):
+            fields.append({"name": "issue", "value": obj["shortId"], "inline": True})
+        if obj.get("count") and str(obj["count"]) != "1":
+            fields.append({"name": "count", "value": str(obj["count"]), "inline": True})
 
-    footer_parts = [str(project)]
+    footer_parts = [project]
     if rule:
         footer_parts.append(str(rule))
 
@@ -77,7 +94,7 @@ def build_embed(payload: dict) -> dict:
         embed["description"] = str(culprit)[:4096]
     if fields:
         embed["fields"] = fields[:25]  # Discord 한도
-    ts = event.get("timestamp") or event.get("dateCreated") or event.get("lastSeen")
+    ts = obj.get("timestamp") or obj.get("lastSeen") or obj.get("firstSeen") or obj.get("dateCreated")
     if ts:
         embed["timestamp"] = _iso(ts)
 

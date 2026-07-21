@@ -88,6 +88,44 @@ def test_embed_issue_resource_shape():
     assert e["color"] == LEVEL_TO_COLOR["warning"], e["color"]
 
 
+# 실제 Sentry issue.created webhook payload (2026-07-21 캡처, 값만 축약)
+REAL_ISSUE = {
+    "action": "created",
+    "installation": {"uuid": "68a8b1c0-..."},
+    "data": {"issue": {
+        "web_url": "https://mongsildev.sentry.io/issues/7624620229/",
+        "permalink": "https://mongsildev.sentry.io/issues/7624620229/",
+        "id": "7624620229", "shortId": "WIDGETBOT-4",
+        "title": "ValueError: embed 형식 확인용 테스트",
+        "culprit": "__main__ in <module>", "level": "error",
+        "project": {"id": "4511767188144128", "name": "widgetbot",
+                    "slug": "widgetbot", "platform": "python"},
+        "type": "error", "count": "1",
+        "metadata": {"value": "...", "type": "ValueError"},
+        "lastSeen": "2026-07-21T14:12:43.757277+00:00",
+    }},
+}
+
+
+def test_real_issue_footer_is_project_name_not_dict():
+    """회귀: project가 dict일 때 footer에 dict가 아니라 프로젝트명이 나와야 한다."""
+    e = build_embed(REAL_ISSUE)
+    assert e["footer"]["text"] == "widgetbot", e["footer"]["text"]
+    assert "{" not in e["footer"]["text"], "footer에 dict가 그대로 찍힘: " + e["footer"]["text"]
+
+
+def test_real_issue_full_embed():
+    e = build_embed(REAL_ISSUE)
+    assert e["title"].startswith("ValueError"), e["title"]
+    assert e["url"] == "https://mongsildev.sentry.io/issues/7624620229/", e.get("url")
+    assert e["color"] == LEVEL_TO_COLOR["error"]
+    assert e["description"] == "__main__ in <module>", e.get("description")
+    # 태그 없는 issue 리소스는 level/issue 필드로 채운다
+    names = {f["name"] for f in e.get("fields", [])}
+    assert "level" in names and "issue" in names, names
+    assert e["timestamp"].startswith("2026-07-21"), e.get("timestamp")
+
+
 def test_embed_dict_tags():
     """태그가 dict 형태로 와도 처리."""
     p = json.loads(json.dumps(SAMPLE))
@@ -137,6 +175,8 @@ if __name__ == "__main__":
         ("레벨별 색상 매핑", test_embed_level_color_mapping),
         ("제목 없으면 metadata 폴백", test_embed_missing_title_falls_back_to_metadata),
         ("issue 리소스 형태", test_embed_issue_resource_shape),
+        ("실제 issue: footer가 프로젝트명", test_real_issue_footer_is_project_name_not_dict),
+        ("실제 issue: 전체 embed", test_real_issue_full_embed),
         ("dict 태그 처리", test_embed_dict_tags),
         ("올바른 서명 통과", test_signature_valid),
         ("틀린 서명 거부", test_signature_wrong_rejected),
