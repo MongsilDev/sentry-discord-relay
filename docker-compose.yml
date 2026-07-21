@@ -1,0 +1,29 @@
+# sentry-discord-relay — Sentry webhook을 받아 Discord로 중계.
+#
+# 별도 컨테이너로 두는 이유: cloudflared(host 네트워크)가 도달하려면 host에 포트를
+# 발행해야 한다. python 봇 컨테이너 안에서 127.0.0.1로 열면 host에서 안 보인다.
+# cdn.mongsil.dev와 동일한 패턴(127.0.0.1 발행 → Cloudflare Tunnel만 접근).
+#
+# 기동: sudo docker-compose -f /volume1/docker/sentry-discord-relay/docker-compose.yml up -d
+version: "3.7"
+
+services:
+  sentry-relay:
+    image: python:3.12-slim
+    container_name: sentry-relay
+    restart: unless-stopped
+    working_dir: /app
+    volumes:
+      - .:/app:ro
+    env_file:
+      - .env
+    ports:
+      # 127.0.0.1만 — Cloudflare Tunnel만 접근, LAN/tailnet 직접 접근 차단
+      - "127.0.0.1:8092:8092"
+    # 의존성은 flask 하나뿐. 기동 시 설치 후 앱 실행(이미지를 건드리지 않음).
+    command: >
+      sh -c "pip install --quiet --no-cache-dir 'flask>=3.0.0' &&
+             python3 app.py"
+    environment:
+      - HOST=0.0.0.0
+      - PORT=8092
