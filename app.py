@@ -47,6 +47,7 @@ logging.basicConfig(
 log = logging.getLogger("relay")
 
 app = Flask(__name__)
+app.config["MAX_CONTENT_LENGTH"] = 1024 * 1024
 
 
 def verify_signature(secret: str, body: bytes, signature: str | None) -> bool:
