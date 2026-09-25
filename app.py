@@ -76,7 +76,8 @@ def sentry_hook():
     raw = request.get_data()
     signature = request.headers.get("Sentry-Hook-Signature")
     if not verify_signature(SENTRY_CLIENT_SECRET, raw, signature):
-        log.warning("서명 검증 실패 — 거부 (from %s)", request.remote_addr)
+        client_ip = request.headers.get("CF-Connecting-IP") or request.remote_addr
+        log.warning("서명 검증 실패 — 거부 (from %s)", client_ip)
         return {"error": "invalid signature"}, 401
 
     resource = request.headers.get("Sentry-Hook-Resource", "")
