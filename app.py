@@ -13,7 +13,9 @@ import hashlib
 import hmac
 import logging
 import os
+import re
 
+import sentry_sdk
 from flask import Flask, request
 
 from discord_client import send_embed
@@ -34,17 +36,28 @@ def load_env(path: str = ".env") -> None:
 
 load_env()
 
+sentry_sdk.init(dsn=os.getenv("SENTRY_DSN", ""), traces_sample_rate=0.1, environment="production")
+
 SENTRY_CLIENT_SECRET = os.environ.get("SENTRY_CLIENT_SECRET", "")
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL", "")
 PORT = int(os.environ.get("PORT", "8092"))
 # 127.0.0.1만 바인드 — Cloudflare Tunnel만 도달, LAN 직접 접근 차단
 HOST = os.environ.get("HOST", "127.0.0.1")
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-)
-log = logging.getLogger("relay")
+
+class _PlainFormatter(logging.Formatter):
+    # werkzeug 요청 로그의 ANSI 색 코드 제거
+    _ansi = re.compile(r"\x1b\[[0-9;]*m")
+
+    def format(self, record):
+        return self._ansi.sub("", super().format(record))
+
+
+_handler = logging.StreamHandler()
+_handler.setFormatter(_PlainFormatter(
+    "%(asctime)s | %(levelname)-7s | %(name)s | %(message)s", "%Y-%m-%d %H:%M:%S"))
+logging.basicConfig(level=logging.INFO, handlers=[_handler])
+log = logging.getLogger("sentry-discord-relay")
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 1024 * 1024

@@ -36,3 +36,4 @@ python3 app.py
 | `DISCORD_WEBHOOK_URL` | 알림을 보낼 Discord 채널의 Incoming Webhook URL | 없음 |
 | `PORT` | 수신 포트 | `8092` |
 | `HOST` | 바인드 주소 | `127.0.0.1` |
+| `SENTRY_DSN` | 설정하면 중계기 자체 오류를 Sentry로 전송 | 없음 |

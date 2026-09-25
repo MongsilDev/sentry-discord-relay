@@ -20,9 +20,9 @@ services:
     ports:
       # 127.0.0.1만 — Cloudflare Tunnel만 접근, LAN/tailnet 직접 접근 차단
       - "127.0.0.1:8092:8092"
-    # 의존성은 flask 하나뿐. 기동 시 설치 후 앱 실행(이미지를 건드리지 않음).
+    # 기동 시 의존성 설치 후 앱 실행(이미지를 건드리지 않음).
     command: >
-      sh -c "pip install --quiet --no-cache-dir 'flask>=3.0.0' &&
+      sh -c "pip install --quiet --no-cache-dir -r requirements.txt &&
              python3 app.py"
     environment:
       - HOST=0.0.0.0

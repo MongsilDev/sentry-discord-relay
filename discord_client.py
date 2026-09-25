@@ -8,7 +8,7 @@ import time
 import urllib.error
 import urllib.request
 
-log = logging.getLogger("relay.discord")
+log = logging.getLogger("sentry-discord-relay.discord")
 _SSL = ssl.create_default_context()
 
 # Discord API는 명시적 User-Agent를 요구한다. urllib 기본값(Python-urllib/x)은
