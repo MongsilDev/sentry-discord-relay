@@ -3,13 +3,14 @@ from __future__ import annotations
 
 import re
 
-from cards import GREEN, RED, escape, link
+from cards import GRAY, GREEN, RED, escape, link
 
 COLOR_DOWN = RED
 COLOR_UP = GREEN
 
 _HEAD = re.compile(r"Monitor is (?P<state>DOWN|UP)\s*:\s*(?P<name>.+?)\s*\(\s*(?P<url>\S+)\s*\)", re.I)
 _REASON = re.compile(r"Reason\s*:\s*(?P<reason>[^\n]+?)\s*(?:/\s*Location\s*:[^\n]*)?$", re.I | re.M)
+_CONTACT_ADDED = re.compile(r"alert contact is now successfully added", re.I)
 _DURATION = re.compile(r"(?:was down|down) for\s+(?P<dur>.+?)\s*\.?\s*$", re.I | re.S)
 _UNITS = (
     (r"(\d+)\s+days?", r"\1일"),
@@ -40,6 +41,8 @@ def _korean_duration(text: str) -> str:
 def parse(payload: dict) -> dict | None:
     """알아본 형식이면 카드 dict(color, line1, line2, button), 아니면 None."""
     text = source_text(payload)
+    if _CONTACT_ADDED.search(text):
+        return {"color": GRAY, "line1": "ℹ️ **UptimeRobot 알림 연결됨**", "line2": "이 채널로 모니터 중단과 복구 알림이 옵니다"}
     head = _HEAD.search(text)
     if not head:
         return None

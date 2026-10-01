@@ -193,7 +193,7 @@ def uptimerobot_hook(token: str):
 
 @app.post("/notify/<token>")
 def notify_hook(token: str):
-    """내부 작업 알림. title, status(fail, warn, ok, info), detail, url, url_label을 받는다."""
+    """내부 작업 알림. title, status(fail, warn, ok, info), detail, url, url_label, username을 받는다."""
     if not _token_ok(token, RELAY_NOTIFY_TOKEN):
         return {"error": "not found"}, 404
     payload = request.get_json(force=True, silent=True)
@@ -201,7 +201,8 @@ def notify_hook(token: str):
         return {"error": "title required"}, 400
     card = cards.notice(str(payload["title"]), str(payload.get("status") or "info"),
                         payload.get("detail"), payload.get("url"), payload.get("url_label"))
-    return _send_card(card, "알림")
+    extra = {"username": str(payload["username"])[:80]} if payload.get("username") else None
+    return _send_card(card, "알림", extra)
 
 
 @app.get("/health")

@@ -209,6 +209,8 @@ def test_uptime_embed_shape_and_unknown():
     c = uptime_card.parse({"content": "Monitor is DOWN: a ( https://a.b ) - Reason: HTTP 503 - Service Unavailable\nLocation: Ohio, USA"})
     assert c["line2"] == "HTTP 503 - Service Unavailable", c
     assert uptime_card.parse({"content": "hello"}) is None
+    c = uptime_card.parse({"content": "An UptimeRobot alert contact is now successfully added for this channel/user."})
+    assert c and c["color"] == cards.GRAY, c
 
 
 def _fake_sender():
@@ -246,6 +248,8 @@ def test_notify_endpoint():
     box = sent[-1][1]["components"][0]
     assert box["accent_color"] == cards.RED and sent[-1][2] is True
     assert box["components"][0]["content"] == "❌ **일일 백업 실패**\n-# 위키 DB 덤프", box
+    client.post("/notify/nt", json={"title": "t", "username": "백업"})
+    assert sent[-1][1]["username"] == "백업", sent[-1][1]
 
 
 # ── Sentry 카드 ─────────────────────────────────────────────────────────
