@@ -6,9 +6,10 @@ Sentry 에러 알림을 Discord 채널로 중계하는 webhook 서버. Sentry �
 
 - Sentry 이슈, 에러 알림을 Discord 채널에 실시간 전달
 - issue 구독과 event_alert 규칙 두 가지 webhook payload 형식 지원
-- 레벨별 색상, 이슈 링크, 태그 필드를 담은 embed 변환. 색상 값은 Sentry 공식 Discord 통합에서 그대로 이식
+- 새 이슈와 재발 알림을 Components V2 카드로 전달. 레벨별 색 막대, 프로젝트와 제목, 위치와 환경, release, 이슈 링크 버튼. 모르는 형식은 embed로 전달
 - Discord rate limit 응답을 받으면 `Retry-After`만큼, 최대 10초 대기 후 한 번 재시도
 - UptimeRobot Discord 연동 알림을 받아 중단과 복구를 색 막대 카드(Components V2)로 바꿔 전달. 모르는 형식은 원문 그대로 전달
+- `POST /notify/<토큰>`으로 내부 작업 알림(title, status, detail, url)을 같은 카드 형식으로 전달
 - `GET /health`로 상태 확인
 
 ## 동작 방식
@@ -39,3 +40,4 @@ python3 app.py
 | `HOST` | 바인드 주소 | `127.0.0.1` |
 | `SENTRY_DSN` | 설정하면 중계기 자체 오류를 Sentry로 전송 | 없음 |
 | `UPTIMEROBOT_RELAY_TOKEN` | `POST /uptimerobot/<토큰>` 경로 토큰. 비어 있으면 이 경로는 404 | 없음 |
+| `RELAY_NOTIFY_TOKEN` | `POST /notify/<토큰>` 경로 토큰. 비어 있으면 이 경로는 404 | 없음 |

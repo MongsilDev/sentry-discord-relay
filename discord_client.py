@@ -1,4 +1,4 @@
-"""Discord Incoming Webhook으로 embed 전송. 표준 라이브러리만 사용."""
+"""Discord Incoming Webhook 전송. 표준 라이브러리만 사용."""
 from __future__ import annotations
 
 import json
@@ -16,41 +16,58 @@ _SSL = ssl.create_default_context()
 USER_AGENT = "sentry-discord-relay (https://mongsil.dev, 1.0)"
 
 
-def send_embed(webhook_url: str, embed: dict, timeout: int = 15) -> bool:
-    """embed 하나를 Discord 채널로 전송. 성공하면 True."""
-    return send_json(webhook_url, {"embeds": [embed]}, timeout)
+def send_embed(webhook_url: str, embed: dict, timeout: int = 15) -> str | None:
+    """embed 하나를 Discord 채널로 전송. 성공하면 메시지 ID."""
+    return send_json(webhook_url, {"embeds": [embed]}, timeout=timeout)
 
 
-def send_json(webhook_url: str, payload: dict, timeout: int = 15) -> bool:
-    """웹훅 본문을 그대로 전송. 성공하면 True.
+def with_query(url: str, **params) -> str:
+    query = "&".join(f"{k}={v}" for k, v in params.items())
+    return url + ("&" if "?" in url else "?") + query
 
-    429(rate limit)면 Retry-After만큼 1회 대기 후 재시도. 그래도 실패면 버린다
-    (알림 유실이 프로세스 중단보다 낫다).
+
+def send_json(webhook_url: str, payload: dict, components: bool = False, timeout: int = 15) -> str | None:
+    """웹훅 본문을 전송. 성공하면 메시지 ID(모르면 빈 문자열), 실패하면 None.
+
+    wait=true로 보내 메시지 ID를 받는다. 429(rate limit)면 Retry-After만큼 1회 대기 후
+    재시도하고, 그래도 실패면 버린다(알림 유실이 프로세스 중단보다 낫다).
     """
+    params = {"wait": "true"}
+    if components:
+        params["with_components"] = "true"
+    url = with_query(webhook_url, **params)
     body = json.dumps(payload).encode("utf-8")
     for attempt in (1, 2):
         try:
             req = urllib.request.Request(
-                webhook_url, data=body,
+                url, data=body,
                 headers={"Content-Type": "application/json", "User-Agent": USER_AGENT},
                 method="POST")
             with urllib.request.urlopen(req, context=_SSL, timeout=timeout) as resp:
                 if resp.status in (200, 204):
-                    return True
+                    try:
+                        return str(json.loads(resp.read().decode("utf-8")).get("id") or "")
+                    except ValueError:
+                        return ""
                 log.warning("Discord 응답 %s", resp.status)
-                return False
+                return None
         except urllib.error.HTTPError as e:
             if e.code == 429 and attempt == 1:
                 retry = _retry_after(e)
                 log.warning("Discord rate limit, %.1fs 후 재시도", retry)
                 time.sleep(retry)
                 continue
-            log.error("Discord 전송 실패 HTTP %s", e.code)
-            return False
+            detail = ""
+            try:
+                detail = e.read().decode("utf-8")[:300]
+            except Exception:
+                pass
+            log.error("Discord 전송 실패 HTTP %s %s", e.code, detail)
+            return None
         except Exception as e:
             log.error("Discord 전송 오류: %s", e)
-            return False
-    return False
+            return None
+    return None
 
 
 def _retry_after(err: urllib.error.HTTPError) -> float:

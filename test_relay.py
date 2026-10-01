@@ -7,6 +7,8 @@ import sys
 from discord_embed import build_embed, LEVEL_TO_COLOR
 from discord_client import USER_AGENT
 import app as app_mod
+import cards
+import sentry_card
 import uptime_card
 from app import should_relay, verify_signature
 
@@ -184,10 +186,10 @@ UR_UP = {"content": "Monitor is UP: alert-test ( https://mongsil.dev/x ) - It wa
 def test_uptime_down_card():
     c = uptime_card.parse(UR_DOWN)
     assert c["color"] == uptime_card.COLOR_DOWN, c
-    assert c["line1"] == "**alert-test** 중단", c["line1"]
+    assert c["line1"] == "🔴 **alert-test** 중단", c["line1"]
     assert c["line2"] == "HTTP 404 - Not Found", c.get("line2")
     assert c["button"] == ("열기", "https://mongsil.dev/x"), c.get("button")
-    msg = uptime_card.build_message(c)
+    msg = cards.build_message(c)
     box = msg["components"][0]
     assert msg["flags"] == 1 << 15 and box["type"] == 17 and box["accent_color"] == uptime_card.COLOR_DOWN
     assert box["components"][0]["accessory"]["url"] == "https://mongsil.dev/x"
@@ -209,23 +211,100 @@ def test_uptime_embed_shape_and_unknown():
     assert uptime_card.parse({"content": "hello"}) is None
 
 
+def _fake_sender():
+    sent = []
+
+    def fake(url, payload, components=False, timeout=15):
+        sent.append((url, payload, components))
+        return "123"
+    app_mod.send_json = fake
+    app_mod.DISCORD_WEBHOOK_URL = "https://discord.example/webhooks/1/x"
+    return sent
+
+
 def test_uptime_endpoint_token():
     app_mod.UPTIMEROBOT_RELAY_TOKEN = "tok"
-    sent = []
-    app_mod.send_json = lambda url, payload, timeout=15: sent.append((url, payload)) or True
-    app_mod.DISCORD_WEBHOOK_URL = "https://discord.example/webhooks/1/x"
+    sent = _fake_sender()
     client = app_mod.app.test_client()
     assert client.post("/uptimerobot/wrong", json=UR_DOWN).status_code == 404
     assert client.post("/uptimerobot/tok", json=UR_DOWN).status_code == 200
-    assert sent[-1][0].endswith("?with_components=true"), sent[-1][0]
+    assert sent[-1][2] is True, sent[-1]
     client.post("/uptimerobot/tok", json={**UR_DOWN, "username": "UptimeRobot", "icon_url": "https://x/i.png"})
     assert sent[-1][1]["username"] == "UptimeRobot" and sent[-1][1]["avatar_url"] == "https://x/i.png", sent[-1][1]
     assert client.post("/uptimerobot/tok", json={"content": "hello"}).status_code == 200
-    assert sent[-1] == ("https://discord.example/webhooks/1/x", {"content": "hello"}), sent[-1]
+    assert sent[-1] == ("https://discord.example/webhooks/1/x", {"content": "hello"}, False), sent[-1]
+
+
+def test_notify_endpoint():
+    app_mod.RELAY_NOTIFY_TOKEN = "nt"
+    sent = _fake_sender()
+    client = app_mod.app.test_client()
+    assert client.post("/notify/x", json={"title": "a"}).status_code == 404
+    assert client.post("/notify/nt", json={"status": "fail"}).status_code == 400
+    r = client.post("/notify/nt", json={"title": "일일 백업 실패", "status": "fail", "detail": "위키 DB 덤프"})
+    assert r.status_code == 200 and r.get_json()["id"] == "123", r.get_json()
+    box = sent[-1][1]["components"][0]
+    assert box["accent_color"] == cards.RED and sent[-1][2] is True
+    assert box["components"][0]["content"] == "❌ **일일 백업 실패**\n-# 위키 DB 덤프", box
+
+
+# ── Sentry 카드 ─────────────────────────────────────────────────────────
+
+EVENT_ALERT = {
+    "action": "triggered",
+    "data": {
+        "event": {
+            "title": "APIError: API 오류: User Mismatch",
+            "culprit": "utils.rank_helpers in fetch_user_stats_solo",
+            "level": "error",
+            "release": "689e416c0ffee0000000000000000000deadbeef",
+            "tags": [["environment", "production"], ["handled", "yes"], ["level", "error"]],
+            "url": "https://sentry.io/api/0/projects/mongsildev/mongsil-bot/events/abc/",
+            "web_url": "https://mongsildev.sentry.io/issues/77/events/abc/",
+        },
+        "triggered_rule": "재발 이슈를 Discord 중계기로",
+    },
+}
+
+
+def test_sentry_issue_card():
+    p = json.loads(json.dumps(REAL_ISSUE))
+    p["data"]["issue"]["priority"] = "high"
+    c = sentry_card.build("issue", p)
+    assert c["color"] == cards.RED, c
+    assert c["line1"] == "🆕 **widgetbot** ValueError: embed 형식 확인용 테스트", c["line1"]
+    assert c["line2"] == "error | \\_\\_main\\_\\_ in <module> | WIDGETBOT-4 | 우선순위 높음", c["line2"]
+    assert c["button"] == ("이슈", "https://mongsildev.sentry.io/issues/7624620229/"), c["button"]
+
+
+def test_sentry_regression_card():
+    c = sentry_card.build("event_alert", EVENT_ALERT)
+    assert c["line1"] == "🔁 **mongsil-bot** 재발: APIError: API 오류: User Mismatch", c["line1"]
+    assert "production" in c["line2"] and "689e416" in c["line2"] and "deadbeef" not in c["line2"], c["line2"]
+    assert c["button"] == ("이슈", "https://mongsildev.sentry.io/issues/77/"), c["button"]
+
+
+def test_sentry_warning_and_unknown():
+    p = json.loads(json.dumps(EVENT_ALERT))
+    p["data"]["event"]["level"] = "warning"
+    p["data"]["triggered_rule"] = "다른 규칙"
+    c = sentry_card.build("event_alert", p)
+    assert c["color"] == cards.AMBER and c["line1"].startswith("🔔"), c
+    assert "다른 규칙" in c["line2"], c["line2"]
+    assert sentry_card.build("event_alert", {"data": {"event": {"title": "x"}}}) is None
+    assert sentry_card.build("error", {"data": {}}) is None
+
+
+def test_long_title_clipped():
+    p = json.loads(json.dumps(REAL_ISSUE))
+    p["data"]["issue"]["title"] = "A" * 400
+    c = sentry_card.build("issue", p)
+    assert c["line1"].endswith("...") and len(c["line1"]) < 200, len(c["line1"])
 
 
 def test_secret_path_redacted():
     assert app_mod._redact_path('"POST /uptimerobot/abc123 HTTP/1.1" 200') == '"POST /uptimerobot/*** HTTP/1.1" 200'
+    assert app_mod._redact_path("/notify/zz?x") == "/notify/***?x"
 
 
 # ── Discord 전송 규약 ───────────────────────────────────────────────────
@@ -257,6 +336,11 @@ if __name__ == "__main__":
         ("UptimeRobot 복구 카드와 중단 시간", test_uptime_up_card_duration),
         ("UptimeRobot embed 형식과 모르는 형식", test_uptime_embed_shape_and_unknown),
         ("UptimeRobot 경로 토큰 검사", test_uptime_endpoint_token),
+        ("내부 알림 카드", test_notify_endpoint),
+        ("Sentry 새 이슈 카드", test_sentry_issue_card),
+        ("Sentry 재발 카드", test_sentry_regression_card),
+        ("Sentry warning과 모르는 형식", test_sentry_warning_and_unknown),
+        ("긴 제목 자르기", test_long_title_clipped),
         ("로그에서 경로 토큰 가림", test_secret_path_redacted),
     ]:
         ok = run(name, fn) and ok
