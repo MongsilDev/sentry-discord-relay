@@ -73,6 +73,8 @@ def build_embed(payload: dict) -> dict:
                 fields.append({"name": key, "value": str(tags[key]), "inline": True})
     else:
         # issue 리소스는 태그가 없다. 대신 유용한 속성으로 채운다.
+        if payload.get("action") == "unresolved":
+            fields.append({"name": "status", "value": "regressed", "inline": True})
         fields.append({"name": "level", "value": level, "inline": True})
         if obj.get("shortId"):
             fields.append({"name": "issue", "value": obj["shortId"], "inline": True})

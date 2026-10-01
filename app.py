@@ -36,7 +36,7 @@ def load_env(path: str = ".env") -> None:
 
 load_env()
 
-sentry_sdk.init(dsn=os.getenv("SENTRY_DSN", ""), traces_sample_rate=0.1, environment="production")
+sentry_sdk.init(dsn=os.getenv("SENTRY_DSN", ""), traces_sample_rate=0.1)
 
 SENTRY_CLIENT_SECRET = os.environ.get("SENTRY_CLIENT_SECRET", "")
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL", "")
@@ -71,6 +71,17 @@ def verify_signature(secret: str, body: bytes, signature: str | None) -> bool:
     return hmac.compare_digest(expected, signature)
 
 
+def should_relay(resource: str, payload: dict) -> bool:
+    """issue 구독은 새 이슈와 재발만 보낸다. 해결, 배정, 보관 같은 상태 변경은 건너뛴다."""
+    if resource != "issue":
+        return True
+    action = payload.get("action")
+    if action == "created":
+        return True
+    issue = (payload.get("data") or {}).get("issue") or {}
+    return action == "unresolved" and issue.get("substatus") == "regressed"
+
+
 @app.post("/sentry-hook")
 def sentry_hook():
     raw = request.get_data()
@@ -94,6 +105,12 @@ def sentry_hook():
 
     if not isinstance(payload, dict):
         return {"error": "bad payload"}, 400
+
+    if not should_relay(resource, payload):
+        issue = (payload.get("data") or {}).get("issue") or {}
+        log.info("건너뜀: %s.%s substatus=%s %s", resource, payload.get("action"),
+                 issue.get("substatus"), issue.get("shortId"))
+        return {"status": "skipped"}, 200
 
     try:
         embed = build_embed(payload)
