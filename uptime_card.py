@@ -7,7 +7,7 @@ COLOR_DOWN = 0xEF4444
 COLOR_UP = 0x22C55E
 
 _HEAD = re.compile(r"Monitor is (?P<state>DOWN|UP)\s*:\s*(?P<name>.+?)\s*\(\s*(?P<url>\S+)\s*\)", re.I)
-_REASON = re.compile(r"Reason\s*:\s*(?P<reason>.+?)\s*(?:/\s*Location\s*:.*)?$", re.I | re.S)
+_REASON = re.compile(r"Reason\s*:\s*(?P<reason>[^\n]+?)\s*(?:/\s*Location\s*:[^\n]*)?$", re.I | re.M)
 _DURATION = re.compile(r"(?:was down|down) for\s+(?P<dur>.+?)\s*\.?\s*$", re.I | re.S)
 _UNITS = (
     (r"(\d+)\s+days?", r"\1일"),
@@ -59,7 +59,7 @@ def parse(payload: dict) -> dict | None:
         "line1": f"**{_escape(head['name'])}** {'중단' if down else '복구'}",
     }
     if detail:
-        card["line2"] = detail[:300]
+        card["line2"] = " ".join(detail.split())[:300]
     url = head["url"]
     if url.startswith(("http://", "https://")) and len(url) <= 512:
         card["button"] = ("열기", url)

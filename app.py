@@ -160,10 +160,16 @@ def uptimerobot_hook(token: str):
 
     card = uptime_card.parse(payload)
     if card is None:
-        log.warning("UptimeRobot 형식을 몰라 원문 전달: 키 %s", sorted(payload))
+        log.warning("UptimeRobot 형식을 몰라 원문 전달: 키 %s, 내용 %s", sorted(payload),
+                    uptime_card.source_text(payload)[:200])
         ok = send_json(DISCORD_WEBHOOK_URL, payload)
     else:
-        ok = send_json(_with_components(DISCORD_WEBHOOK_URL), uptime_card.build_message(card))
+        message = uptime_card.build_message(card)
+        if payload.get("username"):
+            message["username"] = str(payload["username"])[:80]
+        if payload.get("icon_url"):
+            message["avatar_url"] = str(payload["icon_url"])
+        ok = send_json(_with_components(DISCORD_WEBHOOK_URL), message)
         log.info("UptimeRobot 카드 전송 %s: %s (원문 %s)", "완료" if ok else "실패", card["line1"][:80],
                  uptime_card.source_text(payload)[:200])
     return ({"status": "sent"}, 200) if ok else ({"status": "discord failed"}, 502)

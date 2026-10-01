@@ -204,6 +204,8 @@ def test_uptime_up_card_duration():
 def test_uptime_embed_shape_and_unknown():
     c = uptime_card.parse({"embeds": [{"title": "Monitor is DOWN: api ( https://a.b )", "description": "Reason: Timeout"}]})
     assert c and c["line2"] == "Timeout", c
+    c = uptime_card.parse({"content": "Monitor is DOWN: a ( https://a.b ) - Reason: HTTP 503 - Service Unavailable\nLocation: Ohio, USA"})
+    assert c["line2"] == "HTTP 503 - Service Unavailable", c
     assert uptime_card.parse({"content": "hello"}) is None
 
 
@@ -216,6 +218,8 @@ def test_uptime_endpoint_token():
     assert client.post("/uptimerobot/wrong", json=UR_DOWN).status_code == 404
     assert client.post("/uptimerobot/tok", json=UR_DOWN).status_code == 200
     assert sent[-1][0].endswith("?with_components=true"), sent[-1][0]
+    client.post("/uptimerobot/tok", json={**UR_DOWN, "username": "UptimeRobot", "icon_url": "https://x/i.png"})
+    assert sent[-1][1]["username"] == "UptimeRobot" and sent[-1][1]["avatar_url"] == "https://x/i.png", sent[-1][1]
     assert client.post("/uptimerobot/tok", json={"content": "hello"}).status_code == 200
     assert sent[-1] == ("https://discord.example/webhooks/1/x", {"content": "hello"}), sent[-1]
 
