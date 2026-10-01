@@ -17,12 +17,17 @@ USER_AGENT = "sentry-discord-relay (https://mongsil.dev, 1.0)"
 
 
 def send_embed(webhook_url: str, embed: dict, timeout: int = 15) -> bool:
-    """embed 하나를 Discord 채널로 전송. 성공하면 True.
+    """embed 하나를 Discord 채널로 전송. 성공하면 True."""
+    return send_json(webhook_url, {"embeds": [embed]}, timeout)
+
+
+def send_json(webhook_url: str, payload: dict, timeout: int = 15) -> bool:
+    """웹훅 본문을 그대로 전송. 성공하면 True.
 
     429(rate limit)면 Retry-After만큼 1회 대기 후 재시도. 그래도 실패면 버린다
     (알림 유실이 프로세스 중단보다 낫다).
     """
-    body = json.dumps({"embeds": [embed]}).encode("utf-8")
+    body = json.dumps(payload).encode("utf-8")
     for attempt in (1, 2):
         try:
             req = urllib.request.Request(

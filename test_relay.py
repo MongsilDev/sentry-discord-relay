@@ -6,6 +6,8 @@ import sys
 
 from discord_embed import build_embed, LEVEL_TO_COLOR
 from discord_client import USER_AGENT
+import app as app_mod
+import uptime_card
 from app import should_relay, verify_signature
 
 
@@ -173,6 +175,55 @@ def test_relay_issue_created_only():
     assert should_relay("event_alert", {"action": "triggered"})
 
 
+# ── UptimeRobot 카드 ────────────────────────────────────────────────────
+
+UR_DOWN = {"content": "Monitor is DOWN: alert-test ( https://mongsil.dev/x ) - Reason: HTTP 404 - Not Found / Location: Ohio, USA"}
+UR_UP = {"content": "Monitor is UP: alert-test ( https://mongsil.dev/x ) - It was down for 1 hours, 5 minutes and 3 seconds."}
+
+
+def test_uptime_down_card():
+    c = uptime_card.parse(UR_DOWN)
+    assert c["color"] == uptime_card.COLOR_DOWN, c
+    assert c["line1"] == "**alert-test** 중단", c["line1"]
+    assert c["line2"] == "HTTP 404 - Not Found", c.get("line2")
+    assert c["button"] == ("열기", "https://mongsil.dev/x"), c.get("button")
+    msg = uptime_card.build_message(c)
+    box = msg["components"][0]
+    assert msg["flags"] == 1 << 15 and box["type"] == 17 and box["accent_color"] == uptime_card.COLOR_DOWN
+    assert box["components"][0]["accessory"]["url"] == "https://mongsil.dev/x"
+    assert "\n-# HTTP 404" in box["components"][0]["components"][0]["content"]
+
+
+def test_uptime_up_card_duration():
+    c = uptime_card.parse(UR_UP)
+    assert c["color"] == uptime_card.COLOR_UP, c
+    assert c["line1"].endswith("복구"), c["line1"]
+    assert c["line2"] == "중단 시간 1시간 5분 3초", c.get("line2")
+
+
+def test_uptime_embed_shape_and_unknown():
+    c = uptime_card.parse({"embeds": [{"title": "Monitor is DOWN: api ( https://a.b )", "description": "Reason: Timeout"}]})
+    assert c and c["line2"] == "Timeout", c
+    assert uptime_card.parse({"content": "hello"}) is None
+
+
+def test_uptime_endpoint_token():
+    app_mod.UPTIMEROBOT_RELAY_TOKEN = "tok"
+    sent = []
+    app_mod.send_json = lambda url, payload, timeout=15: sent.append((url, payload)) or True
+    app_mod.DISCORD_WEBHOOK_URL = "https://discord.example/webhooks/1/x"
+    client = app_mod.app.test_client()
+    assert client.post("/uptimerobot/wrong", json=UR_DOWN).status_code == 404
+    assert client.post("/uptimerobot/tok", json=UR_DOWN).status_code == 200
+    assert sent[-1][0].endswith("?with_components=true"), sent[-1][0]
+    assert client.post("/uptimerobot/tok", json={"content": "hello"}).status_code == 200
+    assert sent[-1] == ("https://discord.example/webhooks/1/x", {"content": "hello"}), sent[-1]
+
+
+def test_secret_path_redacted():
+    assert app_mod._redact_path('"POST /uptimerobot/abc123 HTTP/1.1" 200') == '"POST /uptimerobot/*** HTTP/1.1" 200'
+
+
 # ── Discord 전송 규약 ───────────────────────────────────────────────────
 
 def test_user_agent_is_set():
@@ -198,6 +249,11 @@ if __name__ == "__main__":
         ("시크릿 미설정 거부", test_signature_empty_secret_rejected),
         ("User-Agent 설정됨", test_user_agent_is_set),
         ("issue는 생성만 전송", test_relay_issue_created_only),
+        ("UptimeRobot 중단 카드", test_uptime_down_card),
+        ("UptimeRobot 복구 카드와 중단 시간", test_uptime_up_card_duration),
+        ("UptimeRobot embed 형식과 모르는 형식", test_uptime_embed_shape_and_unknown),
+        ("UptimeRobot 경로 토큰 검사", test_uptime_endpoint_token),
+        ("로그에서 경로 토큰 가림", test_secret_path_redacted),
     ]:
         ok = run(name, fn) and ok
     sys.exit(0 if ok else 1)

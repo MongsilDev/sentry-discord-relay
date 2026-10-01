@@ -18,8 +18,9 @@ import re
 import sentry_sdk
 from flask import Flask, request
 
-from discord_client import send_embed
+from discord_client import send_embed, send_json
 from discord_embed import build_embed
+import uptime_card
 
 
 def load_env(path: str = ".env") -> None:
@@ -36,10 +37,28 @@ def load_env(path: str = ".env") -> None:
 
 load_env()
 
-sentry_sdk.init(dsn=os.getenv("SENTRY_DSN", ""), traces_sample_rate=0.1)
+_SECRET_PATH = re.compile(r"/uptimerobot/[^/\s\"?]+")
+
+
+def _redact_path(text):
+    return _SECRET_PATH.sub("/uptimerobot/***", text) if isinstance(text, str) else text
+
+
+def _scrub_event(event, hint):
+    req = event.get("request") or {}
+    if req.get("url"):
+        req["url"] = _redact_path(req["url"])
+    for crumb in (event.get("breadcrumbs") or {}).get("values") or []:
+        crumb["message"] = _redact_path(crumb.get("message"))
+    return event
+
+
+sentry_sdk.init(dsn=os.getenv("SENTRY_DSN", ""), traces_sample_rate=0.1,
+                before_send=_scrub_event, before_send_transaction=_scrub_event)
 
 SENTRY_CLIENT_SECRET = os.environ.get("SENTRY_CLIENT_SECRET", "")
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL", "")
+UPTIMEROBOT_RELAY_TOKEN = os.environ.get("UPTIMEROBOT_RELAY_TOKEN", "")
 PORT = int(os.environ.get("PORT", "8092"))
 # 127.0.0.1만 바인드 — Cloudflare Tunnel만 도달, LAN 직접 접근 차단
 HOST = os.environ.get("HOST", "127.0.0.1")
@@ -53,6 +72,16 @@ class _PlainFormatter(logging.Formatter):
         return self._ansi.sub("", super().format(record))
 
 
+class _SecretPathFilter(logging.Filter):
+    # werkzeug 접근 로그의 요청 줄에 경로 토큰이 그대로 실림
+    def filter(self, record):
+        if record.args:
+            record.args = tuple(_redact_path(a) for a in record.args)
+        record.msg = _redact_path(record.msg)
+        return True
+
+
+logging.getLogger("werkzeug").addFilter(_SecretPathFilter())
 _handler = logging.StreamHandler()
 _handler.setFormatter(_PlainFormatter(
     "%(asctime)s | %(levelname)-7s | %(name)s | %(message)s", "%Y-%m-%d %H:%M:%S"))
@@ -118,6 +147,30 @@ def sentry_hook():
         return {"status": "sent"}, 200
     log.error("Discord 전송 실패: %s", embed.get("title", "")[:60])
     return {"status": "discord failed"}, 502
+
+
+@app.post("/uptimerobot/<token>")
+def uptimerobot_hook(token: str):
+    if not UPTIMEROBOT_RELAY_TOKEN or not hmac.compare_digest(token, UPTIMEROBOT_RELAY_TOKEN):
+        return {"error": "not found"}, 404
+    payload = request.get_json(force=True, silent=True)
+    if not isinstance(payload, dict):
+        log.warning("UptimeRobot 본문 파싱 실패")
+        return {"error": "bad payload"}, 400
+
+    card = uptime_card.parse(payload)
+    if card is None:
+        log.warning("UptimeRobot 형식을 몰라 원문 전달: 키 %s", sorted(payload))
+        ok = send_json(DISCORD_WEBHOOK_URL, payload)
+    else:
+        ok = send_json(_with_components(DISCORD_WEBHOOK_URL), uptime_card.build_message(card))
+        log.info("UptimeRobot 카드 전송 %s: %s (원문 %s)", "완료" if ok else "실패", card["line1"][:80],
+                 uptime_card.source_text(payload)[:200])
+    return ({"status": "sent"}, 200) if ok else ({"status": "discord failed"}, 502)
+
+
+def _with_components(url: str) -> str:
+    return url + ("&" if "?" in url else "?") + "with_components=true"
 
 
 @app.get("/health")
