@@ -165,20 +165,12 @@ def _issue(action, substatus=None):
     return {"action": action, "data": {"issue": {"shortId": "X-1", "substatus": substatus}}}
 
 
-def test_relay_issue_created_and_regression_only():
+def test_relay_issue_created_only():
     assert should_relay("issue", _issue("created", "new"))
-    assert should_relay("issue", _issue("unresolved", "regressed"))
     for action, sub in (("resolved", None), ("assigned", "ongoing"), ("archived", "archived_forever"),
-                        ("unresolved", "ongoing"), ("unresolved", "escalating")):
+                        ("unresolved", "ongoing"), ("unresolved", "regressed")):
         assert not should_relay("issue", _issue(action, sub)), (action, sub)
     assert should_relay("event_alert", {"action": "triggered"})
-
-
-def test_regression_embed_has_status_field():
-    e = build_embed(_issue("unresolved", "regressed"))
-    assert {"name": "status", "value": "regressed", "inline": True} in e["fields"], e["fields"]
-    e = build_embed(_issue("created", "new"))
-    assert all(f["name"] != "status" for f in e["fields"]), e["fields"]
 
 
 # ── Discord 전송 규약 ───────────────────────────────────────────────────
@@ -205,8 +197,7 @@ if __name__ == "__main__":
         ("서명 없음 거부", test_signature_missing_rejected),
         ("시크릿 미설정 거부", test_signature_empty_secret_rejected),
         ("User-Agent 설정됨", test_user_agent_is_set),
-        ("issue는 생성과 재발만 전송", test_relay_issue_created_and_regression_only),
-        ("재발 embed에 status 필드", test_regression_embed_has_status_field),
+        ("issue는 생성만 전송", test_relay_issue_created_only),
     ]:
         ok = run(name, fn) and ok
     sys.exit(0 if ok else 1)

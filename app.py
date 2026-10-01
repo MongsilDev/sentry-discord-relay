@@ -72,14 +72,8 @@ def verify_signature(secret: str, body: bytes, signature: str | None) -> bool:
 
 
 def should_relay(resource: str, payload: dict) -> bool:
-    """issue 구독은 새 이슈와 재발만 보낸다. 해결, 배정, 보관 같은 상태 변경은 건너뛴다."""
-    if resource != "issue":
-        return True
-    action = payload.get("action")
-    if action == "created":
-        return True
-    issue = (payload.get("data") or {}).get("issue") or {}
-    return action == "unresolved" and issue.get("substatus") == "regressed"
+    """issue 구독은 새 이슈만 보낸다. 재발은 알림 규칙이 event_alert로 따로 보낸다."""
+    return resource != "issue" or payload.get("action") == "created"
 
 
 @app.post("/sentry-hook")
