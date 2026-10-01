@@ -11,7 +11,7 @@ COLOR_UP = GREEN
 _HEAD = re.compile(r"Monitor is (?P<state>DOWN|UP)\s*:\s*(?P<name>.+?)\s*\(\s*(?P<url>\S+)\s*\)", re.I)
 _REASON = re.compile(r"Reason\s*:\s*(?P<reason>[^\n]+?)\s*(?:/\s*Location\s*:[^\n]*)?$", re.I | re.M)
 _CONTACT_ADDED = re.compile(r"alert contact is now successfully added", re.I)
-_DURATION = re.compile(r"(?:was down|down) for\s+(?P<dur>.+?)\s*\.?\s*$", re.I | re.S)
+_DURATION = re.compile(r"down for\s+(?P<dur>[^.\n]+)", re.I)
 _UNITS = (
     (r"(\d+)\s+days?", r"\1일"),
     (r"(\d+)\s+hours?", r"\1시간"),

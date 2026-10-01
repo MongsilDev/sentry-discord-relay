@@ -201,6 +201,8 @@ def test_uptime_up_card_duration():
     assert c["color"] == uptime_card.COLOR_UP, c
     assert c["line1"].endswith("복구"), c["line1"]
     assert c["line2"] == "중단 시간 1시간 5분 3초", c.get("line2")
+    c = uptime_card.parse({"content": "Monitor is UP: a ( https://a.b/ ). It was down for 34 minutes and 42 seconds.\nLocation: Ashburn USA (North America)"})
+    assert c["line2"] == "중단 시간 34분 42초", c.get("line2")
 
 
 def test_uptime_embed_shape_and_unknown():
