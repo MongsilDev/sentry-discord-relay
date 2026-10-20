@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Sentry → Discord 실시간 알림 중계기.
+"""Sentry 알림을 Discord로 보내는 실시간 중계기.
 
 Sentry Internal Integration이 이벤트 발생 시 POST하는 webhook을 받아,
 서명을 검증하고 Discord embed로 변환해 Discord Incoming Webhook으로 보낸다.
 
-노출된 엔드포인트이므로 HMAC 서명 검증이 유일하자 핵심 방어다. 시크릿을 모르면
+노출된 엔드포인트이므로 HMAC 서명 검증이 유일한 핵심 방어다. 시크릿을 모르면
 유효한 요청을 위조할 수 없다.
 """
 from __future__ import annotations
@@ -63,7 +63,7 @@ DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL", "")
 UPTIMEROBOT_RELAY_TOKEN = os.environ.get("UPTIMEROBOT_RELAY_TOKEN", "")
 RELAY_NOTIFY_TOKEN = os.environ.get("RELAY_NOTIFY_TOKEN", "")
 PORT = int(os.environ.get("PORT", "8092"))
-# 127.0.0.1만 바인드 — Cloudflare Tunnel만 도달, LAN 직접 접근 차단
+# 127.0.0.1만 바인드: Cloudflare Tunnel만 도달, LAN 직접 접근 차단
 HOST = os.environ.get("HOST", "127.0.0.1")
 
 
@@ -76,7 +76,7 @@ class _PlainFormatter(logging.Formatter):
 
 
 class _SecretPathFilter(logging.Filter):
-    # werkzeug 접근 로그의 요청 줄에 경로 토큰이 그대로 실림
+    # werkzeug 접근 로그의 요청 줄에 경로 토큰이 그대로 기록됨
     def filter(self, record):
         if record.args:
             record.args = tuple(_redact_path(a) for a in record.args)
@@ -114,7 +114,7 @@ def sentry_hook():
     signature = request.headers.get("Sentry-Hook-Signature")
     if not verify_signature(SENTRY_CLIENT_SECRET, raw, signature):
         client_ip = request.headers.get("CF-Connecting-IP") or request.remote_addr
-        log.warning("서명 검증 실패 — 거부 (from %s)", client_ip)
+        log.warning("서명 검증 실패로 거부 (from %s)", client_ip)
         return {"error": "invalid signature"}, 401
 
     resource = request.headers.get("Sentry-Hook-Resource", "")
@@ -147,7 +147,7 @@ def sentry_hook():
         log.exception("embed 변환 실패: %s", e)
         return {"error": "build failed"}, 400
     mid = send_embed(DISCORD_WEBHOOK_URL, embed)
-    log.warning("Sentry 형식을 몰라 embed로 전송 %s: %s", "완료" if mid is not None else "실패",
+    log.warning("Sentry 형식을 인식하지 못해 embed로 전송 %s: %s", "완료" if mid is not None else "실패",
                 embed.get("title", "")[:60])
     return ({"status": "sent"}, 200) if mid is not None else ({"status": "discord failed"}, 502)
 
@@ -179,7 +179,7 @@ def uptimerobot_hook(token: str):
     card = uptime_card.parse(payload)
     if card is None:
         mid = send_json(DISCORD_WEBHOOK_URL, payload)
-        log.warning("UptimeRobot 형식을 몰라 원문 전달 %s: 키 %s, 내용 %s",
+        log.warning("UptimeRobot 형식을 인식하지 못해 원문 전달 %s: 키 %s, 내용 %s",
                     mid if mid is not None else "실패", sorted(payload), uptime_card.source_text(payload)[:300])
         return ({"status": "sent"}, 200) if mid is not None else ({"status": "discord failed"}, 502)
     extra = {}
@@ -214,6 +214,6 @@ if __name__ == "__main__":
     missing = [k for k, v in (("SENTRY_CLIENT_SECRET", SENTRY_CLIENT_SECRET),
                               ("DISCORD_WEBHOOK_URL", DISCORD_WEBHOOK_URL)) if not v]
     if missing:
-        log.warning("미설정 환경변수: %s (검증/전송이 동작하지 않음)", ", ".join(missing))
-    log.info("중계기 시작 — %s:%d", HOST, PORT)
+        log.warning("미설정 환경변수: %s, 검증과 전송이 동작하지 않음", ", ".join(missing))
+    log.info("중계기 시작: %s:%d", HOST, PORT)
     app.run(host=HOST, port=PORT)

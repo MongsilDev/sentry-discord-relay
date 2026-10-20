@@ -81,7 +81,7 @@ def _event_card(event: dict, rule) -> dict | None:
 
 
 def build(resource: str, payload: dict) -> dict | None:
-    """알아본 형식이면 카드 dict, 아니면 None."""
+    """인식한 형식이면 카드 dict, 아니면 None."""
     data = payload.get("data") or {}
     if resource == "issue" and isinstance(data.get("issue"), dict):
         return _issue_card(data["issue"])

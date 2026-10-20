@@ -1,4 +1,4 @@
-"""Sentry webhook JSON → Discord embed 변환.
+"""Sentry webhook JSON을 Discord embed로 변환.
 
 Sentry 공식 Discord 통합의 embed 구조를 본떴다:
   src/sentry/integrations/discord/message_builder/issues.py
@@ -40,7 +40,7 @@ def _project_name(project) -> str:
 
 
 def build_embed(payload: dict) -> dict:
-    """Sentry webhook 본문 → Discord embed dict.
+    """Sentry webhook 본문을 Discord embed dict로 변환.
 
     두 payload 형식을 모두 지원한다:
     - issue 구독:  {"data": {"issue": {...}}}         (project가 dict, tags 없음)
@@ -104,7 +104,7 @@ def build_embed(payload: dict) -> dict:
 def _iso(ts) -> str:
     """Discord는 ISO8601 문자열을 기대. Sentry는 epoch(float) 또는 ISO 문자열을 보낸다."""
     if isinstance(ts, (int, float)):
-        # epoch → ISO. datetime 사용(표준 라이브러리)
+        # epoch를 ISO로 변환. datetime 사용(표준 라이브러리)
         from datetime import datetime, timezone
         return datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
     return str(ts)

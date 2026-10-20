@@ -1,4 +1,4 @@
-"""중계기 회귀 테스트 — 네트워크 없이 embed 변환과 서명 검증을 확인."""
+"""중계기 회귀 테스트: 네트워크 없이 embed 변환과 서명 검증을 확인."""
 import hashlib
 import hmac
 import json
@@ -112,7 +112,7 @@ REAL_ISSUE = {
 
 
 def test_real_issue_footer_is_project_name_not_dict():
-    """회귀: project가 dict일 때 footer에 dict가 아니라 프로젝트명이 나와야 한다."""
+    """회귀: project가 dict일 때 footer에 dict가 아니라 프로젝트명이 표시되어야 한다."""
     e = build_embed(REAL_ISSUE)
     assert e["footer"]["text"] == "widgetbot", e["footer"]["text"]
     assert "{" not in e["footer"]["text"], "footer에 dict가 그대로 찍힘: " + e["footer"]["text"]
