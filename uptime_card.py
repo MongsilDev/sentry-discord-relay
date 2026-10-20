@@ -38,6 +38,16 @@ def _korean_duration(text: str) -> str:
     return re.sub(r"\s+", " ", out).strip()
 
 
+def monitor_name(payload: dict) -> str | None:
+    head = _HEAD.search(source_text(payload))
+    return head["name"] if head else None
+
+
+def is_down(payload: dict) -> bool:
+    head = _HEAD.search(source_text(payload))
+    return bool(head) and head["state"].upper() == "DOWN"
+
+
 def parse(payload: dict) -> dict | None:
     """인식한 형식이면 카드 dict(color, line1, line2, button), 아니면 None."""
     text = source_text(payload)

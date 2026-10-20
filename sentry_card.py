@@ -88,3 +88,27 @@ def build(resource: str, payload: dict) -> dict | None:
     if resource == "event_alert" and isinstance(data.get("event"), dict):
         return _event_card(data["event"], data.get("triggered_rule"))
     return None
+
+
+def issue_key(resource: str, payload: dict) -> str | None:
+    """같은 이슈의 카드를 묶는 키. 이슈 ID를 모르면 None."""
+    data = payload.get("data") or {}
+    if resource == "issue":
+        issue_id = (data.get("issue") or {}).get("id")
+    else:
+        issue_id = (data.get("event") or {}).get("issue_id")
+    return f"sentry:{issue_id}" if issue_id else None
+
+
+def is_quiet(resource: str, payload: dict) -> bool:
+    """푸시 없이 올릴 알림. warning 이하, 우선순위 낮음, 연결 확인용 시험 이벤트."""
+    data = payload.get("data") or {}
+    item = data.get("issue") if resource == "issue" else data.get("event")
+    if not isinstance(item, dict):
+        return False
+    level = str(item.get("level") or _tags(item).get("level") or "error").lower()
+    if level not in ("error", "fatal"):
+        return True
+    if str(item.get("priority") or "").lower() == "low":
+        return True
+    return "연결 확인" in str(item.get("title") or "")

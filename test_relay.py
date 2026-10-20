@@ -6,7 +6,11 @@ import sys
 
 from discord_embed import build_embed, LEVEL_TO_COLOR
 from discord_client import USER_AGENT
+import os
+import tempfile
+
 import app as app_mod
+from store import Store
 import cards
 import sentry_card
 import uptime_card
@@ -169,9 +173,10 @@ def _issue(action, substatus=None):
     return {"action": action, "data": {"issue": {"shortId": "X-1", "substatus": substatus}}}
 
 
-def test_relay_issue_created_only():
+def test_relay_issue_created_and_resolved():
     assert should_relay("issue", _issue("created", "new"))
-    for action, sub in (("resolved", None), ("assigned", "ongoing"), ("archived", "archived_forever"),
+    assert should_relay("issue", _issue("resolved"))
+    for action, sub in (("assigned", "ongoing"), ("archived", "archived_forever"),
                         ("unresolved", "ongoing"), ("unresolved", "regressed")):
         assert not should_relay("issue", _issue(action, sub)), (action, sub)
     assert should_relay("event_alert", {"action": "triggered"})
@@ -220,10 +225,27 @@ def _fake_sender():
 
     def fake(url, payload, components=False, timeout=15):
         sent.append((url, payload, components))
-        return "123"
+        return str(100 + len(sent))
     app_mod.send_json = fake
     app_mod.DISCORD_WEBHOOK_URL = "https://discord.example/webhooks/1/x"
+    app_mod.ROUTES.update(sentry="", uptime="", ops="")
+    app_mod.STORE = Store(os.path.join(tempfile.mkdtemp(), "messages.json"))
     return sent
+
+
+def _fake_editor():
+    edited = []
+
+    def fake(url, mid, payload, components=False, timeout=15):
+        edited.append((url, mid, payload))
+        return True
+    app_mod.edit_json = fake
+    return edited
+
+
+def _text(message):
+    inner = message["components"][0]["components"][0]
+    return (inner.get("components") or [inner])[0]["content"]
 
 
 def test_uptime_endpoint_token():
@@ -246,12 +268,91 @@ def test_notify_endpoint():
     assert client.post("/notify/x", json={"title": "a"}).status_code == 404
     assert client.post("/notify/nt", json={"status": "fail"}).status_code == 400
     r = client.post("/notify/nt", json={"title": "일일 백업 실패", "status": "fail", "detail": "위키 DB 덤프"})
-    assert r.status_code == 200 and r.get_json()["id"] == "123", r.get_json()
+    assert r.status_code == 200 and r.get_json()["id"] == "101", r.get_json()
     box = sent[-1][1]["components"][0]
     assert box["accent_color"] == cards.RED and sent[-1][2] is True
     assert box["components"][0]["content"] == "❌ **일일 백업 실패**\n-# 위키 DB 덤프", box
+    assert sent[-1][1]["flags"] == 1 << 15, "fail은 푸시"
     client.post("/notify/nt", json={"title": "t", "username": "백업"})
     assert sent[-1][1]["username"] == "백업", sent[-1][1]
+    assert sent[-1][1]["flags"] == 1 << 15 | 1 << 12, "fail이 아니면 무음"
+    assert client.post("/notify/nt", json={"title": "t", "route": "x"}).status_code == 400
+
+
+def test_routes_fall_back():
+    sent = _fake_sender()
+    app_mod.ROUTES.update(ops="https://discord.example/webhooks/9/ops")
+    app_mod.RELAY_NOTIFY_TOKEN = "nt"
+    client = app_mod.app.test_client()
+    client.post("/notify/nt", json={"title": "a"})
+    assert sent[-1][0] == "https://discord.example/webhooks/9/ops", sent[-1][0]
+    client.post("/notify/nt", json={"title": "a", "route": "uptime"})
+    assert sent[-1][0] == "https://discord.example/webhooks/1/x", sent[-1][0]
+
+
+def test_notify_key_settles_card():
+    sent = _fake_sender()
+    edited = _fake_editor()
+    app_mod.RELAY_NOTIFY_TOKEN = "nt"
+    client = app_mod.app.test_client()
+    client.post("/notify/nt", json={"title": "labs 멈춤", "status": "fail", "key": "docker:labs"})
+    r = client.post("/notify/nt", json={"title": "labs 복구", "status": "ok", "detail": "멈춘 시간 3분", "key": "docker:labs"})
+    assert r.get_json()["status"] == "settled" and len(sent) == 1, (r.get_json(), sent)
+    assert edited[-1][1] == "101" and _text(edited[-1][2]) == "✅ **labs 복구**\n-# 멈춘 시간 3분", edited
+    assert edited[-1][2]["flags"] == 1 << 15 | 1 << 12
+    # 고칠 카드가 없으면 무음으로 새로 올림
+    client.post("/notify/nt", json={"title": "labs 복구", "status": "ok", "key": "docker:labs"})
+    assert len(sent) == 2 and sent[-1][1]["flags"] == 1 << 15 | 1 << 12, sent
+
+
+def test_uptime_up_edits_down_card():
+    sent = _fake_sender()
+    edited = _fake_editor()
+    app_mod.UPTIMEROBOT_RELAY_TOKEN = "tok"
+    client = app_mod.app.test_client()
+    client.post("/uptimerobot/tok", json=UR_DOWN)
+    assert sent[-1][1]["flags"] == 1 << 15, "중단은 푸시"
+    r = client.post("/uptimerobot/tok", json=UR_UP)
+    assert r.get_json()["status"] == "settled" and len(sent) == 1, r.get_json()
+    assert _text(edited[-1][2]).startswith("🟢 **alert-test** 복구"), edited[-1][2]
+    client.post("/uptimerobot/tok", json=UR_UP)
+    assert len(sent) == 2 and sent[-1][1]["flags"] == 1 << 15 | 1 << 12, "고칠 카드가 없으면 무음으로 올림"
+
+
+def test_sentry_resolved_edits_card():
+    sent = _fake_sender()
+    edited = _fake_editor()
+    p = json.loads(json.dumps(REAL_ISSUE))
+    p["data"]["issue"]["id"] = "7624620229"
+    created = sentry_card.build("issue", p)
+    app_mod.STORE.add("sentry:7624620229", {"route": "sentry", "id": "55", "card": created})
+    app_mod.SENTRY_CLIENT_SECRET = "s"
+    body = json.dumps({"action": "resolved", "data": {"issue": {"id": "7624620229"}}}).encode()
+    sig = hmac.new(b"s", body, hashlib.sha256).hexdigest()
+    r = app_mod.app.test_client().post("/sentry-hook", data=body, headers={
+        "Sentry-Hook-Signature": sig, "Sentry-Hook-Resource": "issue", "Content-Type": "application/json"})
+    assert r.get_json() == {"status": "settled", "count": 1}, r.get_json()
+    text = _text(edited[-1][2])
+    assert text.startswith("✅ **widgetbot**") and text.endswith("| 해결됨"), text
+    assert not sent
+
+
+def test_sentry_quiet_rules():
+    p = json.loads(json.dumps(REAL_ISSUE))
+    p["data"]["issue"]["level"] = "error"
+    p["data"]["issue"]["priority"] = "high"
+    assert not sentry_card.is_quiet("issue", p)
+    p["data"]["issue"]["priority"] = "low"
+    assert sentry_card.is_quiet("issue", p)
+    p["data"]["issue"]["priority"] = "medium"
+    p["data"]["issue"]["title"] = "Error: er-tools Sentry 연결 확인 A"
+    assert sentry_card.is_quiet("issue", p)
+    e = json.loads(json.dumps(EVENT_ALERT))
+    assert not sentry_card.is_quiet("event_alert", e)
+    e["data"]["event"]["level"] = "warning"
+    assert sentry_card.is_quiet("event_alert", e)
+    e["data"]["event"]["issue_id"] = "77"
+    assert sentry_card.issue_key("event_alert", e) == "sentry:77"
 
 
 # ── Sentry 카드 ─────────────────────────────────────────────────────────
@@ -337,12 +438,17 @@ if __name__ == "__main__":
         ("서명 없음 거부", test_signature_missing_rejected),
         ("시크릿 미설정 거부", test_signature_empty_secret_rejected),
         ("User-Agent 설정됨", test_user_agent_is_set),
-        ("issue는 생성만 전송", test_relay_issue_created_only),
+        ("issue는 생성과 해결만 처리", test_relay_issue_created_and_resolved),
         ("UptimeRobot 중단 카드", test_uptime_down_card),
         ("UptimeRobot 복구 카드와 중단 시간", test_uptime_up_card_duration),
         ("UptimeRobot embed 형식과 모르는 형식", test_uptime_embed_shape_and_unknown),
         ("UptimeRobot 경로 토큰 검사", test_uptime_endpoint_token),
         ("내부 알림 카드", test_notify_endpoint),
+        ("채널별 웹훅과 기본값", test_routes_fall_back),
+        ("내부 알림 key로 카드 수정", test_notify_key_settles_card),
+        ("UptimeRobot 복구가 중단 카드를 수정", test_uptime_up_edits_down_card),
+        ("Sentry 해결이 카드를 수정", test_sentry_resolved_edits_card),
+        ("Sentry 무음 규칙과 이슈 키", test_sentry_quiet_rules),
         ("Sentry 새 이슈 카드", test_sentry_issue_card),
         ("Sentry 재발 카드", test_sentry_regression_card),
         ("Sentry warning과 모르는 형식", test_sentry_warning_and_unknown),

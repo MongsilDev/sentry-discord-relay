@@ -50,7 +50,17 @@ def notice(title: str, status: str = "info", detail: str | None = None,
     return card
 
 
-def build_message(card: dict) -> dict:
+def settled(card: dict, note: str) -> dict:
+    """해결, 복구 표시 카드. 첫 이모지는 ✅, 둘째 줄 끝에 note"""
+    line1 = card["line1"]
+    head, _, rest = line1.partition(" ")
+    if rest and not head.startswith("*"):
+        line1 = rest
+    out = {**card, "color": GREEN, "line1": f"✅ {line1}", "line2": join(card.get("line2"), note)}
+    return out
+
+
+def build_message(card: dict, silent: bool = False) -> dict:
     text = card["line1"] + (f"\n-# {card['line2']}" if card.get("line2") else "")
     inner = {"type": 10, "content": text[:3900]}
     if card.get("button"):
@@ -61,7 +71,8 @@ def build_message(card: dict) -> dict:
             "accessory": {"type": 2, "style": 5, "label": label, "url": url},
         }
     return {
-        "flags": 1 << 15,
+        # 1 << 12는 푸시 알림 없이 올리는 무음 메시지
+        "flags": 1 << 15 | (1 << 12 if silent else 0),
         "allowed_mentions": {"parse": []},
         "components": [{"type": 17, "accent_color": card["color"], "components": [inner]}],
     }

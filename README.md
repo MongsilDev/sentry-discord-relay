@@ -14,7 +14,13 @@ Sentry 공식 Discord 통합은 Team 플랜 이상에서만 쓸 수 있어서, �
 - UptimeRobot의 Discord 연동 알림을 받아 중단과 복구를 Components V2 색 막대 카드로 바꿔 전달.\
   모르는 형식은 원문 그대로 전달
 - `POST /notify/<토큰>`으로 받은 내부 작업 알림을 같은 카드 형식으로 전달.\
-  본문 필드는 title, status, detail, url
+  본문 필드는 title, status, detail, url, key, route
+- Sentry, UptimeRobot, 내부 알림을 채널별 웹훅으로 나눠 전달
+- 바로 봐야 하는 알림만 푸시로 보냄.\
+  warning 이하나 우선순위 낮음인 Sentry 이슈, 복구, 내부 알림 중 fail이 아닌 것은 푸시 없는 무음 메시지로 올림
+- 해결되거나 복구되면 새 카드를 올리지 않고 처음 올린 카드를 고침.\
+  Sentry 이슈가 해결되면 카드에 해결됨을 붙이고, UptimeRobot 복구는 중단 카드를 복구 카드로 바꿈.\
+  내부 알림은 같은 key로 status ok가 오면 fail 카드를 고침
 - `GET /health`로 상태 확인
 
 ## 동작 방식
@@ -41,7 +47,11 @@ python3 app.py
 | 키 | 설명 | 기본값 |
 |---|---|---|
 | `SENTRY_CLIENT_SECRET` | Sentry Internal Integration의 client secret.<br>서명 검증에 사용 | 없음 |
-| `DISCORD_WEBHOOK_URL` | 알림을 보낼 Discord 채널의 Incoming Webhook URL | 없음 |
+| `DISCORD_WEBHOOK_URL` | 알림을 보낼 Discord 채널의 Incoming Webhook URL.<br>아래 채널별 웹훅이 비어 있으면 이 주소로 보냄 | 없음 |
+| `SENTRY_WEBHOOK_URL` | Sentry 알림을 보낼 웹훅 | `DISCORD_WEBHOOK_URL` |
+| `UPTIME_WEBHOOK_URL` | UptimeRobot 알림을 보낼 웹훅 | `DISCORD_WEBHOOK_URL` |
+| `OPS_WEBHOOK_URL` | 내부 작업 알림을 보낼 웹훅.<br>`/notify`에 route를 주지 않으면 여기로 보냄 | `DISCORD_WEBHOOK_URL` |
+| `DATA_DIR` | 카드를 고치려고 보낸 메시지 ID를 저장하는 폴더 | `data` |
 | `PORT` | 수신 포트 | `8092` |
 | `HOST` | 바인드 주소 | `127.0.0.1` |
 | `SENTRY_DSN` | 설정하면 중계기 자체 오류를 Sentry로 전송 | 없음 |

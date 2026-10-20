@@ -70,6 +70,27 @@ def send_json(webhook_url: str, payload: dict, components: bool = False, timeout
     return None
 
 
+def edit_json(webhook_url: str, message_id: str, payload: dict, components: bool = False,
+              timeout: int = 15) -> bool:
+    """웹훅 메시지 수정. 같은 웹훅으로 보낸 메시지만 가능"""
+    url = webhook_url.split("?")[0] + f"/messages/{message_id}"
+    if components:
+        url = with_query(url, with_components="true")
+    body = json.dumps(payload).encode("utf-8")
+    try:
+        req = urllib.request.Request(
+            url, data=body,
+            headers={"Content-Type": "application/json", "User-Agent": USER_AGENT},
+            method="PATCH")
+        with urllib.request.urlopen(req, context=_SSL, timeout=timeout) as resp:
+            return resp.status == 200
+    except urllib.error.HTTPError as e:
+        log.error("Discord 메시지 수정 실패 HTTP %s", e.code)
+    except Exception as e:
+        log.error("Discord 메시지 수정 오류: %s", e)
+    return False
+
+
 def _retry_after(err: urllib.error.HTTPError) -> float:
     """429 응답에서 대기 시간(초). 헤더 우선, 없으면 본문 JSON, 없으면 1초."""
     hdr = err.headers.get("Retry-After")

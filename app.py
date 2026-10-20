@@ -18,11 +18,12 @@ import re
 import sentry_sdk
 from flask import Flask, request
 
-from discord_client import send_embed, send_json
+from discord_client import edit_json, send_embed, send_json
 import cards
 import sentry_card
 import uptime_card
 from discord_embed import build_embed
+from store import Store
 
 
 def load_env(path: str = ".env") -> None:
@@ -60,6 +61,13 @@ sentry_sdk.init(dsn=os.getenv("SENTRY_DSN", ""), traces_sample_rate=0.1,
 
 SENTRY_CLIENT_SECRET = os.environ.get("SENTRY_CLIENT_SECRET", "")
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL", "")
+# 채널별 웹훅. 비어 있으면 DISCORD_WEBHOOK_URL로 보낸다
+ROUTES = {
+    "sentry": os.environ.get("SENTRY_WEBHOOK_URL", ""),
+    "uptime": os.environ.get("UPTIME_WEBHOOK_URL", ""),
+    "ops": os.environ.get("OPS_WEBHOOK_URL", ""),
+}
+STORE = Store(os.path.join(os.environ.get("DATA_DIR", "data"), "messages.json"))
 UPTIMEROBOT_RELAY_TOKEN = os.environ.get("UPTIMEROBOT_RELAY_TOKEN", "")
 RELAY_NOTIFY_TOKEN = os.environ.get("RELAY_NOTIFY_TOKEN", "")
 PORT = int(os.environ.get("PORT", "8092"))
@@ -103,9 +111,23 @@ def verify_signature(secret: str, body: bytes, signature: str | None) -> bool:
     return hmac.compare_digest(expected, signature)
 
 
+def webhook(route: str) -> str:
+    return ROUTES.get(route) or DISCORD_WEBHOOK_URL
+
+
 def should_relay(resource: str, payload: dict) -> bool:
-    """issue 구독은 새 이슈만 보낸다. 재발은 알림 규칙이 event_alert로 따로 보낸다."""
-    return resource != "issue" or payload.get("action") == "created"
+    """issue 구독은 생성과 해결만 처리한다. 재발은 알림 규칙이 event_alert로 따로 보낸다."""
+    return resource != "issue" or payload.get("action") in ("created", "resolved")
+
+
+def settle(key: str, make) -> int:
+    """key로 기억한 카드를 make(원래 카드)가 돌려준 카드로 고친다. 고친 개수."""
+    done = 0
+    for entry in STORE.pop(key):
+        card = make(entry["card"])
+        if edit_json(webhook(entry["route"]), entry["id"], cards.build_message(card, silent=True), components=True):
+            done += 1
+    return done
 
 
 @app.post("/sentry-hook")
@@ -138,28 +160,38 @@ def sentry_hook():
                  issue.get("substatus"), issue.get("shortId"))
         return {"status": "skipped"}, 200
 
+    key = sentry_card.issue_key(resource, payload)
+    if resource == "issue" and payload.get("action") == "resolved":
+        n = settle(key, lambda c: cards.settled(c, "해결됨")) if key else 0
+        log.info("Sentry 해결 %s: 카드 %d개 수정", key, n)
+        return {"status": "settled", "count": n}, 200
+
     card = sentry_card.build(resource, payload)
     if card is not None:
-        return _send_card(card, "Sentry")
+        return _send_card(card, "Sentry", route="sentry", key=key,
+                          silent=sentry_card.is_quiet(resource, payload))
     try:
         embed = build_embed(payload)
     except Exception as e:
         log.exception("embed 변환 실패: %s", e)
         return {"error": "build failed"}, 400
-    mid = send_embed(DISCORD_WEBHOOK_URL, embed)
+    mid = send_embed(webhook("sentry"), embed)
     log.warning("Sentry 형식을 인식하지 못해 embed로 전송 %s: %s", "완료" if mid is not None else "실패",
                 embed.get("title", "")[:60])
     return ({"status": "sent"}, 200) if mid is not None else ({"status": "discord failed"}, 502)
 
 
-def _send_card(card: dict, source: str, extra: dict | None = None):
-    message = cards.build_message(card)
+def _send_card(card: dict, source: str, extra: dict | None = None, route: str = "sentry",
+               key: str | None = None, silent: bool = False):
+    message = cards.build_message(card, silent=silent)
     message.update(extra or {})
-    mid = send_json(DISCORD_WEBHOOK_URL, message, components=True)
+    mid = send_json(webhook(route), message, components=True)
     if mid is None:
         log.error("%s 카드 전송 실패: %s", source, card["line1"][:80])
         return {"status": "discord failed"}, 502
-    log.info("%s 카드 전송 완료 %s: %s", source, mid, card["line1"][:80])
+    if key and mid:
+        STORE.add(key, {"route": route, "id": mid, "card": card})
+    log.info("%s 카드 전송 완료 %s%s: %s", source, mid, " 무음" if silent else "", card["line1"][:80])
     return {"status": "sent", "id": mid}, 200
 
 
@@ -178,7 +210,7 @@ def uptimerobot_hook(token: str):
 
     card = uptime_card.parse(payload)
     if card is None:
-        mid = send_json(DISCORD_WEBHOOK_URL, payload)
+        mid = send_json(webhook("uptime"), payload)
         log.warning("UptimeRobot 형식을 인식하지 못해 원문 전달 %s: 키 %s, 내용 %s",
                     mid if mid is not None else "실패", sorted(payload), uptime_card.source_text(payload)[:300])
         return ({"status": "sent"}, 200) if mid is not None else ({"status": "discord failed"}, 502)
@@ -188,21 +220,40 @@ def uptimerobot_hook(token: str):
     if payload.get("icon_url"):
         extra["avatar_url"] = str(payload["icon_url"])
     log.info("UptimeRobot 원문: %s", uptime_card.source_text(payload)[:300])
-    return _send_card(card, "UptimeRobot", extra)
+    name = uptime_card.monitor_name(payload)
+    key = f"uptime:{name}" if name else None
+    if key and uptime_card.is_down(payload):
+        return _send_card(card, "UptimeRobot", extra, route="uptime", key=key)
+    # 복구는 중단 카드를 고치고, 고칠 카드가 없을 때만 무음으로 새로 올린다
+    if key and settle(key, lambda _c: card):
+        log.info("UptimeRobot 복구로 중단 카드 수정: %s", name)
+        return {"status": "settled"}, 200
+    return _send_card(card, "UptimeRobot", extra, route="uptime", silent=True)
 
 
 @app.post("/notify/<token>")
 def notify_hook(token: str):
-    """내부 작업 알림. title, status(fail, warn, ok, info), detail, url, url_label, username을 받는다."""
+    """내부 작업 알림. 필드는 title, status(fail, warn, ok, info), detail, url, url_label, username, key, route
+
+    fail만 푸시, 나머지는 무음. key가 있는 fail 카드는 같은 key의 ok로 수정
+    """
     if not _token_ok(token, RELAY_NOTIFY_TOKEN):
         return {"error": "not found"}, 404
     payload = request.get_json(force=True, silent=True)
     if not isinstance(payload, dict) or not payload.get("title"):
         return {"error": "title required"}, 400
-    card = cards.notice(str(payload["title"]), str(payload.get("status") or "info"),
+    status = str(payload.get("status") or "info")
+    route = str(payload.get("route") or "ops")
+    if route not in ROUTES:
+        return {"error": "unknown route"}, 400
+    key = f"notify:{str(payload['key'])[:120]}" if payload.get("key") else None
+    card = cards.notice(str(payload["title"]), status,
                         payload.get("detail"), payload.get("url"), payload.get("url_label"))
     extra = {"username": str(payload["username"])[:80]} if payload.get("username") else None
-    return _send_card(card, "알림", extra)
+    if key and status == "ok" and settle(key, lambda _c: card):
+        return {"status": "settled"}, 200
+    return _send_card(card, "알림", extra, route=route, key=key if status == "fail" else None,
+                      silent=status != "fail")
 
 
 @app.get("/health")
