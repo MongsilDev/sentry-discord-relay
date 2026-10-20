@@ -2,7 +2,7 @@
 """Sentry 알림을 Discord로 보내는 실시간 중계기.
 
 Sentry Internal Integration이 이벤트 발생 시 POST하는 webhook을 받아,
-서명을 검증하고 Discord embed로 변환해 Discord Incoming Webhook으로 보낸다.
+서명을 검증하고 Components V2 카드나 embed로 변환해 Discord Incoming Webhook으로 보낸다.
 
 노출된 엔드포인트이므로 HMAC 서명 검증이 유일한 핵심 방어다. 시크릿을 모르면
 유효한 요청을 위조할 수 없다.

@@ -16,7 +16,7 @@ LEVEL_TO_COLOR = {
 }
 DEFAULT_COLOR = LEVEL_TO_COLOR["error"]
 
-# footer/필드에 노출할 태그 (있는 것만)
+# 필드에 노출할 태그 (있는 것만)
 TAG_FIELDS = ("environment", "level", "server_name", "release", "transaction")
 
 

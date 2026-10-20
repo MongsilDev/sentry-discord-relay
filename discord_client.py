@@ -29,7 +29,7 @@ def with_query(url: str, **params) -> str:
 def send_json(webhook_url: str, payload: dict, components: bool = False, timeout: int = 15) -> str | None:
     """웹훅 본문을 전송. 성공하면 메시지 ID(모르면 빈 문자열), 실패하면 None.
 
-    wait=true로 보내 메시지 ID를 받는다. 429(rate limit)면 Retry-After만큼 1회 대기 후
+    wait=true로 보내 메시지 ID를 받는다. 429(rate limit)면 Retry-After만큼 최대 10초까지 1회 대기 후
     재시도하고, 그래도 실패면 버린다(알림 유실이 프로세스 중단보다 낫다).
     """
     params = {"wait": "true"}
