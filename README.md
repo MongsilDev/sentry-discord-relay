@@ -1,14 +1,15 @@
 # sentry-discord-relay
 
-Sentry 에러 알림을 Discord 채널로 넘겨 주는 webhook 서버입니다.\
-Sentry 공식 Discord 통합은 Team 플랜 이상에서만 쓸 수 있어서, 무료 플랜에서도 되는 Internal Integration webhook을 받아 Discord로 보냅니다.
+Sentry 에러 알림을 Discord 채널로 전달하는 웹훅 서버입니다.\
+Sentry 공식 Discord 통합은 Team 플랜 이상에서만 제공되므로, 무료 플랜에서도 쓸 수 있는 Internal Integration 웹훅을 받아 Discord로 보냅니다.
 
 ## 기능
 
 - Sentry 이슈, 에러 알림을 Discord 채널에 실시간 전달
-- issue 구독과 event_alert 규칙 두 가지 webhook 형식 지원
+- issue 구독과 event_alert 규칙 두 가지 웹훅 형식 지원
 - 새 이슈와 재발 알림을 Components V2 카드로 전달.\
-  카드에는 레벨별 색 막대, 프로젝트와 제목, 위치와 환경, release, 이슈 링크 버튼이 들어감.\
+  모든 카드에 레벨별 색 막대, 프로젝트와 제목, 레벨, 위치, 이슈 링크 버튼이 들어감.\
+  issue 구독으로 받은 새 이슈 카드에는 이슈 번호와 우선순위가, event_alert 규칙 카드에는 환경과 release가 더 들어감.\
   모르는 형식은 embed로 전달
 - Discord rate limit 응답을 받으면 `Retry-After`만큼, 최대 10초 기다린 뒤 한 번 재시도
 - UptimeRobot의 Discord 연동 알림을 받아 중단과 복구를 Components V2 색 막대 카드로 바꿔 전달.\
@@ -19,7 +20,7 @@ Sentry 공식 Discord 통합은 Team 플랜 이상에서만 쓸 수 있어서, �
 - 바로 봐야 하는 알림만 푸시로 보냄.\
   warning 이하나 우선순위 낮음인 Sentry 이슈, 복구, 내부 알림 중 fail이 아닌 것은 푸시 없는 무음 메시지로 올림
 - 해결되거나 복구되면 새 카드를 올리지 않고 처음 올린 카드를 고침.\
-  Sentry 이슈가 해결되면 카드에 해결됨을 붙이고, UptimeRobot 복구는 중단 카드를 복구 카드로 바꿈.\
+  Sentry 이슈가 해결되면 카드 둘째 줄 끝에 해결됨을 표시하고, UptimeRobot 복구는 중단 카드를 복구 카드로 바꿈.\
   내부 알림은 같은 key로 status ok가 오면 fail 카드를 고침
 - `GET /health`로 상태 확인
 

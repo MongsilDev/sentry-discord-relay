@@ -86,7 +86,7 @@ def build_embed(payload: dict) -> dict:
     embed = {
         "title": title[:256],  # Discord embed title 한도
         "color": color,
-        "footer": {"text": " · ".join(footer_parts)[:2048]},
+        "footer": {"text": " | ".join(footer_parts)[:2048]},
     }
     if url:
         embed["url"] = url

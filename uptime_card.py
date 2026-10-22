@@ -52,7 +52,7 @@ def parse(payload: dict) -> dict | None:
     """인식한 형식이면 카드 dict(color, line1, line2, button), 아니면 None."""
     text = source_text(payload)
     if _CONTACT_ADDED.search(text):
-        return {"color": GRAY, "line1": "ℹ️ **UptimeRobot 알림 연결됨**", "line2": "이 채널로 모니터 중단과 복구 알림을 보냅니다"}
+        return {"color": GRAY, "line1": "ℹ️ **UptimeRobot 알림 연결됨**", "line2": "이 채널로 모니터 중단과 복구 알림을 보냅니다."}
     head = _HEAD.search(text)
     if not head:
         return None
