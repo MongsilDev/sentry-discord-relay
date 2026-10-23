@@ -3,6 +3,7 @@ import hashlib
 import hmac
 import json
 import sys
+import time
 
 from discord_embed import build_embed, LEVEL_TO_COLOR
 from discord_client import USER_AGENT
@@ -167,6 +168,10 @@ def test_signature_empty_secret_rejected():
     assert verify_signature("", body, sig) is False
 
 
+def test_signature_non_ascii_rejected():
+    assert verify_signature("topsecret", b"body", "\u00e9") is False
+
+
 # ── 전송 대상 선별 ──────────────────────────────────────────────────────
 
 def _issue(action, substatus=None):
@@ -216,6 +221,12 @@ def test_uptime_embed_shape_and_unknown():
     c = uptime_card.parse({"content": "Monitor is DOWN: a ( https://a.b ) - Reason: HTTP 503 - Service Unavailable\nLocation: Ohio, USA"})
     assert c["line2"] == "HTTP 503 - Service Unavailable", c
     assert uptime_card.parse({"content": "hello"}) is None
+    c = uptime_card.parse({"content": "Monitor is DOWN: wiki ( https://a.b/Foo_(bar) ) - Reason: HTTP 503"})
+    assert "https://a.b/Foo_(bar)" in json.dumps(c) and "wiki (" not in json.dumps(c), c
+    assert len(uptime_card.source_text({"content": "x" * 10000})) == 4000
+    t = time.monotonic()
+    uptime_card._HEAD.search("Monitor is DOWN: " + "(" * 200000)
+    assert time.monotonic() - t < 1
     c = uptime_card.parse({"content": "An UptimeRobot alert contact is now successfully added for this channel/user."})
     assert c and c["color"] == cards.GRAY, c
 
@@ -253,6 +264,7 @@ def test_uptime_endpoint_token():
     sent = _fake_sender()
     client = app_mod.app.test_client()
     assert client.post("/uptimerobot/wrong", json=UR_DOWN).status_code == 404
+    assert client.post("/uptimerobot/%C3%A9", json=UR_DOWN).status_code == 404
     assert client.post("/uptimerobot/tok", json=UR_DOWN).status_code == 200
     assert sent[-1][2] is True, sent[-1]
     client.post("/uptimerobot/tok", json={**UR_DOWN, "username": "UptimeRobot", "icon_url": "https://x/i.png"})
@@ -266,6 +278,7 @@ def test_notify_endpoint():
     sent = _fake_sender()
     client = app_mod.app.test_client()
     assert client.post("/notify/x", json={"title": "a"}).status_code == 404
+    assert client.post("/notify/%FF", json={"title": "a"}).status_code == 404
     assert client.post("/notify/nt", json={"status": "fail"}).status_code == 400
     r = client.post("/notify/nt", json={"title": "일일 백업 실패", "status": "fail", "detail": "위키 DB 덤프"})
     assert r.status_code == 200 and r.get_json()["id"] == "101", r.get_json()
@@ -437,6 +450,7 @@ if __name__ == "__main__":
         ("틀린 서명 거부", test_signature_wrong_rejected),
         ("서명 없음 거부", test_signature_missing_rejected),
         ("시크릿 미설정 거부", test_signature_empty_secret_rejected),
+        ("비ASCII 서명 거부", test_signature_non_ascii_rejected),
         ("User-Agent 설정됨", test_user_agent_is_set),
         ("issue는 생성과 해결만 처리", test_relay_issue_created_and_resolved),
         ("UptimeRobot 중단 카드", test_uptime_down_card),

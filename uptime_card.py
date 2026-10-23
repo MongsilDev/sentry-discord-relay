@@ -8,10 +8,11 @@ from cards import GRAY, GREEN, RED, escape, link
 COLOR_DOWN = RED
 COLOR_UP = GREEN
 
-_HEAD = re.compile(r"Monitor is (?P<state>DOWN|UP)\s*:\s*(?P<name>.+?)\s*\(\s*(?P<url>\S+)\s*\)", re.I)
+_HEAD = re.compile(r"Monitor is (?P<state>DOWN|UP)\s*:\s*(?P<name>.+?)\s*\(\s*(?P<url>(?:[^\s()]|\([^\s()]*\))+)\s*\)", re.I)
 _REASON = re.compile(r"Reason\s*:\s*(?P<reason>[^\n]+?)\s*(?:/\s*Location\s*:[^\n]*)?$", re.I | re.M)
 _CONTACT_ADDED = re.compile(r"alert contact is now successfully added", re.I)
 _DURATION = re.compile(r"down for\s+(?P<dur>[^.\n]+)", re.I)
+_MAX_TEXT = 4000
 _UNITS = (
     (r"(\d+)\s+days?", r"\1일"),
     (r"(\d+)\s+hours?", r"\1시간"),
@@ -28,7 +29,7 @@ def source_text(payload: dict) -> str:
             for f in embed.get("fields") or []:
                 if isinstance(f, dict):
                     parts.append(f"{f.get('name', '')}: {f.get('value', '')}")
-    return "\n".join(p for p in parts if p).strip()
+    return "\n".join(p for p in parts if p).strip()[:_MAX_TEXT]
 
 
 def _korean_duration(text: str) -> str:

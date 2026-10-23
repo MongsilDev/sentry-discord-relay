@@ -56,7 +56,7 @@ def _scrub_event(event, hint):
     return event
 
 
-sentry_sdk.init(dsn=os.getenv("SENTRY_DSN", ""), traces_sample_rate=0.1,
+sentry_sdk.init(dsn=os.getenv("SENTRY_DSN", ""), traces_sample_rate=0.1, include_local_variables=False,
                 before_send=_scrub_event, before_send_transaction=_scrub_event)
 
 SENTRY_CLIENT_SECRET = os.environ.get("SENTRY_CLIENT_SECRET", "")
@@ -108,7 +108,7 @@ def verify_signature(secret: str, body: bytes, signature: str | None) -> bool:
     if not signature or not secret:
         return False
     expected = hmac.new(secret.encode("utf-8"), body, hashlib.sha256).hexdigest()
-    return hmac.compare_digest(expected, signature)
+    return hmac.compare_digest(expected.encode(), signature.encode())
 
 
 def webhook(route: str) -> str:
@@ -196,7 +196,7 @@ def _send_card(card: dict, source: str, extra: dict | None = None, route: str = 
 
 
 def _token_ok(token: str, expected: str) -> bool:
-    return bool(expected) and hmac.compare_digest(token, expected)
+    return bool(expected) and hmac.compare_digest(token.encode(), expected.encode())
 
 
 @app.post("/uptimerobot/<token>")
